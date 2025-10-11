@@ -1,0 +1,11 @@
+uiautomation
+pydantic
+loguru
+apscheduler
+aiofiles
+fastapi
+shortuuid
+pywin32
+regex
+rich
+aiohttp

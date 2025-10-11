@@ -1,0 +1,6 @@
+pydantic
+psycopg_pool
+psycopg[binary]
+pypinyin
+shortuuid
+regex

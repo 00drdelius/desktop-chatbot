@@ -1,0 +1,18 @@
+enable: false
+database: posygresql
+scan_interval: 5 # seconds
+time_zone: Asia/Shanghai
+# manager_groupid: 50579074946@chatroom
+manager_groupid: 政企微信提醒机器人
+# executor_groupid: 50579074946@chatroom
+executor_groupid: 政企微信提醒机器人
+db_config:
+  host: localhost
+  user: postgres
+  password: postgres
+  dbname: chinamobile_internal_capabilities
+  row_factory: dict_row
+
+config_task: "配置事项"
+fulfill_task: "任务完成"
+assistant_name: "机器人"

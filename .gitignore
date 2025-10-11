@@ -1,0 +1,12 @@
+**/__pycache__
+@AutomationLog.txt
+logs/**
+**/*.ipynb
+temp/**
+build/**
+dist/**
+4a-warning.spec
+**/*.spec
+demo/**
+test/**
+execlog/**
