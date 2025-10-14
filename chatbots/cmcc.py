@@ -45,7 +45,7 @@ class CmccChatClient(ChatBotClientBase):
         self._doc_ctrl = self.root_control.DocumentControl()
 
         # 增强的重试机制等待控件可用
-        max_retries = 10
+        max_retries = 3
         for attempt in range(max_retries):
             try:
                 # 先确保DocumentControl可用
@@ -58,7 +58,7 @@ class CmccChatClient(ChatBotClientBase):
                 # 确保有足够的子控件
                 if len(children) > 4:
                     self._root_ctrl = (children[4].GroupControl().GroupControl())
-                    logger.debug(f"成功找到控件，尝试次数: {attempt + 1}")
+                    # logger.debug(f"成功找到控件，尝试次数: {attempt + 1}")
                     break
                 else:
                     logger.debug(f"子控件数量不足: {len(children)}，重试中...")
@@ -364,8 +364,145 @@ class CmccChatClient(ChatBotClientBase):
 
         edit_text_block.SendKeys("{Enter}",waitTime=0)
 
-
     def send_file_logic(self, session_name:str, filepath:Union[str,Path]):
+        try:
+            self.switch_session(session_name)
+            chat_interface = self.get_chat_interface
+            file_transfer_btn=chat_interface.edit_block.file_transfer_btn
+            file_transfer_btn.Click(waitTime=0)
+            # logger.debug(f"[BEFORE REFRESH] {self.root_control.GetChildren()}")
+            self.__refresh_ctrls() #XXX refresh to get the file transfer block
+            # logger.debug(f"[AFTER REFRESH] {self.root_control.GetChildren()}")
+
+            fileupload_ctrl=self.root_control.GetFirstChildControl()
+            if fileupload_ctrl==None and not isinstance(fileupload_ctrl,uia.uiautomation.WindowControl):
+                raise FileTransferError("[ERROR] could not find the file transfer control(选择文件的 control)!")
+
+            file_chosen_block=get_file_chosen_block(fileupload_ctrl)
+            if isinstance(filepath, str):
+                directory = osp.dirname(filepath)
+                filename = osp.basename(filepath)
+            uia.SetClipboardText(directory)
+            #XXX type directory in search bar. {Ctrl}+L could directly focus on the search bar
+            file_chosen_block.search_bar.SendKeys("{Ctrl}l{Ctrl}v{Enter}",waitTime=0)
+            time.sleep(0.1)
+            uia.SetClipboardText(filename)
+            #XXX type filename
+            # file_chosen_block.filename_edit_ctrl.Click(waitTime=0)
+            #XXX filename edit shortcut: alt+n
+            file_chosen_block.filename_edit_ctrl.SendKeys("{Alt}n{Ctrl}v",waitTime=0)
+            # file_chosen_block.filename_edit_ctrl.SendKeys(filename,waitTime=0)
+            file_chosen_block.open_btn.SendKeys("{Enter}",waitTime=0)
+            # file_chosen_block.open_btn.Click(waitTime=0)
+        except Exception as exc:
+            logger.error(f"[文件发送报错] {exc}")
+            return False
+        else:
+            return True
+    
+
+    def search(self, search_keywords:str):
+
+        #NOTE sometimes `search_keywords` contains special invisible characters: \ufeff, \xa0, \u3000. Replace needed
+        search_keywords = search_keywords.replace('\u3000','').replace("\xa0","").replace("\ufeff","")
+
+        switch_to_foreground(self.root_control)
+
+        uia.SetClipboardText(search_keywords)
+        search_editctrl = self.search_ctrl.EditControl()
+        #XXX ctrl+f, shortcut keys to focus on search edit control;
+        #XXX ctrl+a, make sure all typed keys are cleared
+        self.root_control.SendKeys("{Ctrl}f{Ctrl}a{Ctrl}v",waitTime=0)
+
+        self.__refresh_ctrls() #XXX to get the searched sessions list
+
+        search_result:uia.GroupControl = (search_editctrl.GetParentControl().
+                                          GetNextSiblingControl().GetLastChildControl())
+
+        if "无结果 没有想找的结果？" in search_result.Name:
+            raise SessionNotFound(f"{search_keywords} not found.")
+
+        elif "最近联系人" not in search_result.Name:
+                #NOTE:不是最近联系人，移动办公大多情况不会默认选择第一个搜索到的联系人，需要自动化鼠标点击
+                #XXX 在search result下找到Name为${search keywords}的TextControl组件，找到后鼠标点击该组件
+                try:
+                    
+                    # 在搜索结果中查找匹配搜索关键词的TextControl，增加等待时间
+                    searched_session = search_result.TextControl(Name=search_keywords)
+                    
+                    if searched_session:  
+                        # 找到匹配的TextControl，进行鼠标点击选择
+                        searched_session.Click(waitTime=0)
+                        logger.debug(f"找到并点击选择最近联系人: {search_keywords}")
+                    else:
+                        logger.warning(f"未找到匹配 '{search_keywords}' 的TextControl组件")
+                        raise SessionNotFound(f"未找到匹配 '{search_keywords}' 的最近联系人")
+                        
+                except Exception as e:
+                    logger.error(f"联系人搜索报错: {e}")
+                    # 发生异常时抛出异常而不是使用默认行为
+                    raise SessionNotFound(f"搜索联系人 '{search_keywords}' 时发生错误: {e}")
+        else:
+            # 处理"最新联系人"情况，也需要点击选择联系人才能进入对话框
+            try:
+                
+                # 在搜索结果中查找匹配搜索关键词的TextControl，增加等待时间
+                # searched_session = search_result.TextControl(Name=search_keywords)
+                searched_session = search_result.TextControl(Name=search_keywords)
+                
+                if searched_session:
+                    # 找到匹配的TextControl，进行鼠标点击选择
+                    searched_session.Click(waitTime=0)
+                    logger.debug(f"在最新联系人中找到并点击选择联系人: {search_keywords}")
+                #XXX maybe no need to use Enter
+                # else:
+                #     logger.warning(f"在最新联系人中未找到匹配 '{search_keywords}' 的TextControl组件")
+                #     # 尝试使用Enter键作为备选方案
+                #     search_editctrl = self.search_ctrl.EditControl()
+                #     search_editctrl.SendKeys("{Enter}",waitTime=0)
+                #     logger.debug(f"使用Enter键选择默认联系人")
+                    
+            except Exception as e:
+                logger.error(f"最新联系人搜索报错: {e}")
+                # 直接跳出当前执行流程，执行下一个流程
+                raise SessionNotFound(f"最新联系人搜索失败: {e}")
+
+    @property
+    def get_at_control_list(self)->List[uia.ListItemControl]:
+        """
+        once @, @ list control revealed in the sixth GroupControl
+        under DocumentControl.GroupControl.
+
+        CAUTION
+        ---
+        1. you need to input "@" before get this property
+        2. you can "@name" to get an @ list contains only the one you want to @.
+        Useful to position the member if @ list is too large
+
+        Returns:
+            out: a list of ListItemControl, which `Name` is member name
+        
+        """
+        children=self._doc_ctrl.GroupControl().GetChildren()
+        if len(children)<6:
+            raise AtListNotFound("you need to input '@' before get this property")
+        at_control_list = []
+
+        temp = children[5].ListControl(Depth=1)
+        at_control_list = temp.GetChildren()
+        return at_control_list
+
+
+    def __refresh_ctrls(self):
+        """
+        refresh all controls. Sleep `self.wait_before_refresh` before refresh.
+        """
+        time.sleep(self.wait_before_refresh)
+        #XXX just reinitialize to refresh. 
+        self.__init__(cache_session_map=False,wait_before_refresh=self.wait_before_refresh)
+
+
+    def __send_file_logic(self, session_name:str, filepath:Union[str,Path]):
         try:
             self.switch_session(session_name)
             chat_interface = self.get_chat_interface
@@ -476,100 +613,8 @@ class CmccChatClient(ChatBotClientBase):
         else:
             return True
 
-    def search(self, search_keywords:str):
-        switch_to_foreground(self.root_control)
-        uia.SetClipboardText(search_keywords)
-        search_editctrl = self.search_ctrl.EditControl()
-        #XXX ctrl+f, shortcut keys to focus on search edit control;
-        #XXX ctrl+a, make sure all typed keys are cleared
-        self.root_control.SendKeys("{Ctrl}f{Ctrl}a{Ctrl}v",waitTime=0)
 
-        self.__refresh_ctrls() #XXX to get the searched sessions list
-
-        search_result:uia.GroupControl = (search_editctrl.GetParentControl().
-                                          GetNextSiblingControl().GetLastChildControl())
-
-        if "无结果 没有想找的结果？" in search_result.Name:
-            raise SessionNotFound(f"{search_keywords} not found.")
-
-        elif "最近联系人" not in search_result.Name:
-                #FIXME:不是最近联系人，移动办公大多情况不会默认选择第一个搜索到的联系人，需要自动化鼠标点击
-                #XXX 在search result下找到Name为${search keywords}的TextControl组件，找到后鼠标点击该组件
-                try:
-                    # 等待搜索结果完全加载
-                    import time
-                    time.sleep(0.5)
-                    
-                    # 在搜索结果中查找匹配搜索关键词的TextControl，增加等待时间
-                    # searched_session = search_result.TextControl(Name=search_keywords)
-                    searched_session = search_result.TextControl(Name=search_keywords)
-                    
-                    if searched_session:  
-                        # 找到匹配的TextControl，进行鼠标点击选择
-                        searched_session.Click(waitTime=0)
-                        logger.debug(f"找到并点击选择最近联系人: {search_keywords}")
-                    else:
-                        logger.warning(f"未找到匹配 '{search_keywords}' 的TextControl组件")
-                        raise SessionNotFound(f"未找到匹配 '{search_keywords}' 的最近联系人")
-                        
-                except Exception as e:
-                    logger.error(f"联系人搜索报错: {e}")
-                    # 发生异常时抛出异常而不是使用默认行为
-                    raise SessionNotFound(f"搜索联系人 '{search_keywords}' 时发生错误: {e}")
-        else:
-            # 处理"最新联系人"情况，也需要点击选择联系人才能进入对话框
-            try:
-                # 等待搜索结果完全加载
-                import time
-                time.sleep(0.5)
-                
-                # 在搜索结果中查找匹配搜索关键词的TextControl，增加等待时间
-                # searched_session = search_result.TextControl(Name=search_keywords)
-                searched_session = search_result.TextControl(Name=search_keywords)
-                
-                if searched_session:
-                    # 找到匹配的TextControl，进行鼠标点击选择
-                    searched_session.Click(waitTime=0)
-                    logger.debug(f"在最新联系人中找到并点击选择联系人: {search_keywords}")
-                else:
-                    logger.warning(f"在最新联系人中未找到匹配 '{search_keywords}' 的TextControl组件")
-                    # 尝试使用Enter键作为备选方案
-                    search_editctrl = self.search_ctrl.EditControl()
-                    search_editctrl.SendKeys("{Enter}",waitTime=0)
-                    logger.debug(f"使用Enter键选择默认联系人")
-                    
-            except Exception as e:
-                logger.error(f"最新联系人搜索报错: {e}")
-                # 直接跳出当前执行流程，执行下一个流程
-                raise SessionNotFound(f"最新联系人搜索失败: {e}")
-
-    @property
-    def get_at_control_list(self)->List[uia.ListItemControl]:
-        """
-        once @, @ list control revealed in the sixth GroupControl
-        under DocumentControl.GroupControl.
-
-        CAUTION
-        ---
-        1. you need to input "@" before get this property
-        2. you can "@name" to get an @ list contains only the one you want to @.
-        Useful to position the member if @ list is too large
-
-        Returns:
-            out: a list of ListItemControl, which `Name` is member name
-        
-        """
-        children=self._doc_ctrl.GroupControl().GetChildren()
-        if len(children)<6:
-            raise AtListNotFound("you need to input '@' before get this property")
-        at_control_list = []
-
-        temp = children[5].ListControl(Depth=1)
-        at_control_list = temp.GetChildren()
-        return at_control_list
-
-
-    def __refresh_ctrls(self):
+    def ___refresh_ctrls(self):
         """
         refresh all controls. Sleep `self.wait_before_refresh` before refresh.
         """
@@ -602,3 +647,4 @@ class CmccChatClient(ChatBotClientBase):
             self._chat_ctrl = _whole_chat_ctrls.ListItemControl().GetNextSiblingControl()
         except Exception as e:
             logger.warning(f"刷新控件时出错: {e}，继续使用现有控件")
+
