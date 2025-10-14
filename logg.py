@@ -1,7 +1,15 @@
 #TODO: logger is copied originally from other repo, still not revised.
 import sys
+from pathlib import Path
 from loguru import logger
 
+if getattr(sys, 'frozen', False):
+    work_dir = Path(sys.executable).parent
+else:
+    work_dir = Path(__file__).parent
+
+LOGGER_DIR=work_dir / "logs"
+LOGGER_DIR.mkdir(exist_ok=True)
 logger.remove()
 
 logger.level("API", no=1, color="<cyan>")
@@ -16,7 +24,7 @@ logger.add(
     diagnose=True,
 )
 logger.add(
-    "logs/xybot.log",
+    str(LOGGER_DIR / "execution.log"),
     format="[{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}::{function}::{line} ] {message}",
     encoding="utf-8",
     enqueue=True,

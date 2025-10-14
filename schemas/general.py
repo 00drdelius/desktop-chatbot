@@ -51,6 +51,14 @@ class SendMessage(BaseModel):
     session name received. if group, then group session name.
     You can give a name which not is a session name, chatbot will search it.
     """
+    ActualName: str | None = ""
+    """
+    Mostly FromWxid passed in is a phone number. ActualName is needed for manual and double check
+    """
+    Role: str | None = ""
+    """
+    character role. e.g.: 客户经理，分公司副总，管理员，总监/主任
+    """
     SenderWxid:Optional[str]=""
     """
     member name in a group session.
