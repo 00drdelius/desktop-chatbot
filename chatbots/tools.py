@@ -1,6 +1,7 @@
 import time
 from typing import *
 from functools import wraps
+from deprecated import deprecated
 
 import win32gui
 import regex as re
@@ -72,7 +73,8 @@ def get_file_chosen_block(root_ctrl:uia.WindowControl)->WindowsChooseFileBlock:
     )
 
 # 修改后：
-def get_file_chosen_block(root_ctrl:uia.WindowControl)->WindowsChooseFileBlock:
+@deprecated
+def __get_file_chosen_block(root_ctrl:uia.WindowControl)->WindowsChooseFileBlock:
     """
     Return Windows File Chosen Control(点击上传文件后弹出的选择文件块)
 
