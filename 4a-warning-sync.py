@@ -1,5 +1,6 @@
 # server cannot request computer deployed 移动办公, but can reversely connect.
 # Hence we need to keep asking server to fetch messages
+import os
 from typing import *
 import asyncio
 from pathlib import Path
@@ -12,14 +13,21 @@ import shortuuid
 import pandas as pd
 from datetime import datetime
 from pytz import timezone
+from dotenv import load_dotenv
 
 from schemas import SendMessage
 from chatbots import CmccChatClient
-from logg import logger, LOGGER_DIR
+from logg import logger, LOGGER_DIR, WORK_DIR
 # from exec_logger import exec_logger, logger.debug, logger.debug, log_error
 
+load_dotenv(dotenv_path=WORK_DIR / ".env")
+WAIT_BEFORE_REFRESH=os.getenv("WAIT_BEFORE_REFRESH",5)
+SERVER_API=os.getenv("SERVER_API","http://10.248.230.35:12030")
+print("[config] WAIT_BEFORE_REFRESH: ",WAIT_BEFORE_REFRESH)
+print("[config] SERVER_API: ",SERVER_API)
+
 #XXX 这里的wait_before_refresh 不能设置的太短，否则会导致移动办公的UI操作失败   
-chatbot_client = CmccChatClient(cache_session_map=False,wait_before_refresh=2)
+chatbot_client = CmccChatClient(cache_session_map=False,wait_before_refresh=WAIT_BEFORE_REFRESH)
 message_queue = asyncio.Queue()
 message_semaphore = asyncio.Semaphore(1) # UI操作是不可抢占的
 consumer_tasks:List[asyncio.Task] = []
@@ -30,9 +38,6 @@ consumer_tasks:List[asyncio.Task] = []
 temp_dir_path = tempfile.mkdtemp(prefix="中移移动办公UI机器人")
 log_df = pd.DataFrame(columns=["发送时间","角色","姓名","联系电话","发送结果","报错原因（若报错）"])
 
-
-SERVER_API="http://127.0.0.1:12030"
-# SERVER_API="http://10.248.230.35:12030"
 
 def b64decode(string:str):
     string = string.removeprefix("data:")

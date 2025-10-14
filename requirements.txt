@@ -9,3 +9,8 @@ pywin32
 regex
 rich
 aiohttp
+pytz
+requests
+deprecated
+pandas
+python-dotenv

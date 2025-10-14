@@ -4,11 +4,11 @@ from pathlib import Path
 from loguru import logger
 
 if getattr(sys, 'frozen', False):
-    work_dir = Path(sys.executable).parent
+    WORK_DIR = Path(sys.executable).parent
 else:
-    work_dir = Path(__file__).parent
+    WORK_DIR = Path(__file__).parent
 
-LOGGER_DIR=work_dir / "logs"
+LOGGER_DIR=WORK_DIR / "logs"
 LOGGER_DIR.mkdir(exist_ok=True)
 logger.remove()
 
