@@ -22,6 +22,7 @@ from logg import logger, LOGGER_DIR, WORK_DIR
 
 load_dotenv(dotenv_path=WORK_DIR / ".env")
 WAIT_BEFORE_REFRESH=os.getenv("WAIT_BEFORE_REFRESH",5)
+WAIT_BEFORE_REFRESH=float(WAIT_BEFORE_REFRESH)
 SERVER_API=os.getenv("SERVER_API","http://10.248.230.35:12030")
 print("[config] WAIT_BEFORE_REFRESH: ",WAIT_BEFORE_REFRESH)
 print("[config] SERVER_API: ",SERVER_API)
