@@ -85,6 +85,8 @@ def execute_send_message(message:SendMessage):
         # logger.error(f"[ERROR EXECUTING SENDING MSG] {exc}")
         msg=f"消息发送失败 - 接收人: {message.ActualName}:{message.FromWxid}\n报错信息：{str(exc)}"
         logger.error(msg)
+        trace = traceback.format_exc()
+        logger.debug(trace)
         log_entry = {
             "发送时间": datetime.now(tz=timezone("Asia/Shanghai")).isoformat(timespec="seconds"),
             "角色":message.Role,
