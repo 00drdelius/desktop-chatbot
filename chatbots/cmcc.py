@@ -85,6 +85,7 @@ class CmccChatClient(ChatBotClientBase):
 
         # XXX be aware that chat control must be revealed
         # after switching to session window 
+        # NOTE: 若将整个窗口分为三个部分：【导航栏】【会话列表】【会话窗口】， self._chat_ctrl 就是整个【会话窗口】
         self._chat_ctrl = _whole_chat_ctrls.ListItemControl().GetNextSiblingControl()
         self.wait_before_refresh=wait_before_refresh
 
@@ -212,21 +213,51 @@ class CmccChatClient(ChatBotClientBase):
     def switch_session(self, session_name:str,**kwargs):
         """
         switch the window to the foreground, search and switch to the session if get None in session_map.
-
         And Refresh the controls at the end.
+        
+        Args:
+            top_bar_name(str): you may provide top_bar_name to check if the session is switched properly.
+            retries(int): number of time to retry
+            ignore_error(bool): ignore error if topbar name is still not top_bar_name after exceeding swtich retries.\
+            default to False
         """
+
         if not check_is_foreground(self.root_control):
             switch_to_foreground(self.root_control)
-
-        session = self.session_map.get(session_name,None)
-        if not session:
-            self.search(session_name)
+        
+        ignore_error = kwargs.pop("ignore_error", False)
+        top_bar_name:str|None = kwargs.pop("top_bar_name", None)
+        if top_bar_name:
+            #NOTE if top_bar_name is provided, we will retry 3 times if switched topbar_name != top_bar_name
+            retries=kwargs.pop("retries",3)
+            top_bar_name = (top_bar_name.replace('\u3000','').replace("\xa0","")
+                            .replace("\ufeff","").replace(" ","").strip())
         else:
-            control = session.control
-            # switch_to_top(self.root_control)
-            # XXX waitTime occurs the performance
-            control.Click(simulateMove=False,waitTime=0)
-        self.__refresh_ctrls() #XXX refresh to get new session history msgs
+            retries=1
+        while retries!=0:
+            session = self.session_map.get(session_name,None)
+            if not session:
+                self.search(session_name)
+            else:
+                control = session.control
+                # switch_to_top(self.root_control)
+                # XXX waitTime occurs the performance
+                control.Click(simulateMove=False,waitTime=0)
+            self.__refresh_ctrls() #XXX refresh to get new session history msgs
+            if top_bar_name:
+                current_topbar_name=self.get_chat_interface.top_bar.TextControl().Name
+                if current_topbar_name==top_bar_name:
+                    break
+                logger.warning(
+                    ("【发现切换的会话窗口名与提供名不一致】"
+                     f"当前会话窗口名：{current_topbar_name}；提供名：{top_bar_name}\n"
+                     f"重试。剩余重试次数：{retries-1}次"))
+                if retries-1==0 and not ignore_error:
+                    raise SessionNotFound(
+                        (f"【切换的会话窗口与提供名不一致】"
+                         f"当前会话窗口名：{current_topbar_name}；提供名：{top_bar_name}\n"
+                         "经过多次重试，仍不一致"))
+            retries-=1
 
 
     # @time_consume
@@ -333,10 +364,34 @@ class CmccChatClient(ChatBotClientBase):
         at_list:List[str]=None,
         **kwargs
     ):
+        """
+        function to send message.
+        Args:
+            session_name(str): session name, revealed in session list.\
+            It searches the session if session_name not in current session
+
+            message(str): the message you are going to send
+
+            from_clipboard(bool): if True, send the message from clipboard. It's quicker.
+
+            at_list(List[str]): list of @ names. If `at_list==["*"]`, @全体成员
+
+            top_bar_name(str): you may provide top_bar_name to check if the session is switched properly.
+
+            retries(int): number of time to retry
+
+            ignore_error(bool): ignore error if topbar name is still not top_bar_name after exceeding swtich retries.\
+            default to False
+        """
+
         if not check_is_foreground(self.root_control):
             switch_to_foreground(self.root_control)
 
-        self.switch_session(session_name)
+        self.switch_session(session_name,
+                            top_bar_name=kwargs.pop("top_bar_name",None),
+                            retries=kwargs.pop("retries",3),
+                            ignore_error=kwargs.pop("ignore_error", False),
+                            )
         chat_interface = self.get_chat_interface
 
         edit_block = chat_interface.edit_block
@@ -345,7 +400,7 @@ class CmccChatClient(ChatBotClientBase):
         #XXX necessary to backspace all content before sending message
         edit_text_block.SendKeys("{Ctrl}a{BACK}",waitTime=0)
         #XXX at_list type first if not empty
-        if any(at_list):
+        if at_list:
             if "*" in at_list[0]:
                 edit_text_block.SendKeys(f"@全体成员",waitTime=0)
                 edit_text_block.SendKeys("{Enter}",waitTime=0)
@@ -364,9 +419,37 @@ class CmccChatClient(ChatBotClientBase):
 
         edit_text_block.SendKeys("{Enter}",waitTime=0)
 
-    def send_file_logic(self, session_name:str, filepath:Union[str,Path]):
+    def send_file(self, session_name, filepath, **kwargs):
+        """
+        function to send file.
+        **WARNING** Only send a file on a single process
+        Args:
+            session_name(str): session name. It searches the session if session_name not in current session.
+
+            filepath(Path|str): file path.
+
+            top_bar_name(str): you may provide top_bar_name to check if the session is switched properly.
+
+            retries(int): number of time to retry
+
+            ignore_error(bool): ignore error if topbar name is still not top_bar_name after exceeding swtich retries.\
+            default to False
+        """
+        return super().send_file(session_name, filepath, **kwargs)
+
+    def send_file_logic(
+            self,
+            session_name:str,
+            filepath:Union[str,Path],
+            **kwargs
+        ):
         try:
-            self.switch_session(session_name)
+            self.switch_session(
+                session_name,
+                top_bar_name=kwargs.pop("top_bar_name",None),
+                retries=kwargs.pop("retries",3),
+                ignore_error=kwargs.pop("ignore_error", False),
+            )
             chat_interface = self.get_chat_interface
             file_transfer_btn=chat_interface.edit_block.file_transfer_btn
             file_transfer_btn.Click(waitTime=0)
