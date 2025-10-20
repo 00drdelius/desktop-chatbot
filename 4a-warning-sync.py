@@ -1,16 +1,18 @@
 # server cannot request computer deployed 移动办公, but can reversely connect.
 # Hence we need to keep asking server to fetch messages
 import os
-from typing import *
+import json
 import asyncio
-from pathlib import Path
 import base64
 import traceback
 import tempfile
+from typing import *
+from pathlib import Path
 
 import requests
 import shortuuid
 import pandas as pd
+from requests.adapters import HTTPAdapter, Retry
 from datetime import datetime
 from pytz import timezone
 from dotenv import load_dotenv
@@ -29,16 +31,19 @@ print("[config] SERVER_API: ",SERVER_API)
 
 #XXX 这里的wait_before_refresh 不能设置的太短，否则会导致移动办公的UI操作失败   
 chatbot_client = CmccChatClient(cache_session_map=False,wait_before_refresh=WAIT_BEFORE_REFRESH)
+request_client=requests.Session()
+customized_adapter = HTTPAdapter(max_retries=Retry(connect=10,read=10,))
+request_client.mount("http://",customized_adapter)
+
 message_queue = asyncio.Queue()
 message_semaphore = asyncio.Semaphore(1) # UI操作是不可抢占的
 consumer_tasks:List[asyncio.Task] = []
-# temp_dir=tempfile.TemporaryDirectory(prefix="中移移动办公UI机器人",delete=False)
 # temp_dir=tempfile.TemporaryDirectory(prefix="中移移动办公UI机器人") #XXX delete=False  python 版本 3.10和3.11   是有区别的  需要注意
-
 # 使用mkdtemp替代TemporaryDirectory，确保程序退出后文件不被清理
 temp_dir_path = tempfile.mkdtemp(prefix="中移移动办公UI机器人")
-log_df = pd.DataFrame(columns=["发送时间","角色","姓名","联系电话","发送结果","报错原因（若报错）"])
-
+log_filepath = LOGGER_DIR.joinpath("log_df.jsonl")
+log_filepath.touch()
+log_file_cursor=log_filepath.open("a+",encoding='utf8')
 
 def b64decode(string:str):
     string = string.removeprefix("data:")
@@ -47,12 +52,23 @@ def b64decode(string:str):
     return decoded, mime_type
 
 
+def concat_jsonl_to_excel():
+    log_df_path = LOGGER_DIR / "log_df.xlsx"
+    logger.debug(f"正在导出excel日志记录至: {log_df_path}")
+    log_file_cursor.seek(0)
+    lines=log_file_cursor.readlines()
+    data = [json.loads(line) for line in lines]
+    log_df = pd.DataFrame(data=data)
+    log_df.to_excel(log_df_path)
+    logger.debug(f"成功导出excel日志记录")
+
+
 def execute_send_message(message:SendMessage):
     "consumer function"
-    global log_df
     try:
         logger.debug(f"切换到目标会话: {message.ActualName}:{message.FromWxid}")
-        chatbot_client.switch_session(message.FromWxid)
+        chatbot_client.switch_session(message.FromWxid,
+                                      top_bar_name=message.ActualName, retries=2, ignore_error=False)
         # log_error(search_exc, f"搜索联系人失败: {message.FromWxid}")
             
         if message.Content:
@@ -64,7 +80,9 @@ def execute_send_message(message:SendMessage):
                 session_name=message.FromWxid,
                 message=message.Content,
                 from_clipboard=True,
-                at_list=at_list
+                at_list=at_list,
+                top_bar_name=message.ActualName,
+                retries=2,ignore_error=False
             )
             logger.debug(f"文本消息发送成功")
             
@@ -79,7 +97,9 @@ def execute_send_message(message:SendMessage):
 
             chatbot_client.send_file(
                 session_name=message.FromWxid,
-                filepath=temp_filepath.absolute()
+                filepath=temp_filepath.absolute(),
+                top_bar_name=message.ActualName,
+                retries=2,ignore_error=False
             )
             logger.debug(f"文件消息发送成功 - 文件: {filename}")
     except Exception as exc:
@@ -96,7 +116,7 @@ def execute_send_message(message:SendMessage):
             "发送结果":"失败",
             "报错原因（若报错）":str(exc)
         }
-        log_df=pd.concat([log_df,pd.DataFrame([log_entry])],ignore_index=True)
+        log_file_cursor.write(json.dumps(log_entry,ensure_ascii=False)+"\n")
         # traceback.print_exc()
         return False
     else:
@@ -109,7 +129,7 @@ def execute_send_message(message:SendMessage):
             "发送结果":"成功",
             "报错原因（若报错）": None
         }
-        log_df=pd.concat([log_df,pd.DataFrame([log_entry])],ignore_index=True)
+        log_file_cursor.write(json.dumps(log_entry,ensure_ascii=False)+"\n")
         return True
 
 def main_oa_server(business:str):
@@ -117,7 +137,7 @@ def main_oa_server(business:str):
     4a-warning main function. Keep asking && receiving messages from server
     """
     logger.debug(f"开始连接服务器获取消息 - 业务类型: {business}")
-    with requests.post(
+    with request_client.post(
         url=f"{SERVER_API}/get-messages",
         json={"business":business},
         stream=True
@@ -158,7 +178,7 @@ def main_oa_server(business:str):
                 logger.error(f"[消息发送失败] 第 {message_count} 条消息发送失败")
                 continue
 
-            with requests.post(
+            with request_client.post(
                 url=f"{SERVER_API}/update-msg-status",
                 json={"uid":str(msg.id)}
             ) as update_resp:
@@ -166,7 +186,7 @@ def main_oa_server(business:str):
                 logger.debug(f"更新消息状态完成 - 消息ID: {msg.id}")
 
 def get_businesses_available()->list:
-    with requests.get(f"{SERVER_API}/businesses-available") as resp:
+    with request_client.get(f"{SERVER_API}/businesses-available") as resp:
         businesses = resp.json().get("data",[])
         return businesses
 
@@ -203,11 +223,9 @@ if __name__ == '__main__':
         print("程序执行完毕！")
         if business:
             logger.debug(f"程序正常结束 - 业务: {business}", business)
-
-        log_df_path=LOGGER_DIR / "log_entries.xlsx"
-        logger.debug(f"正在导出excel日志记录至: {log_df_path}")
-        log_df.to_excel(log_df_path,index=False)
+        concat_jsonl_to_excel()
     finally:
         # temp_dir.cleanup() #XXX 临时文件不删除
+        request_client.close()
+        log_file_cursor.close()
         input("按Enter键退出...")
-
