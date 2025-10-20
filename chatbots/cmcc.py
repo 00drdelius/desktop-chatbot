@@ -178,8 +178,9 @@ class CmccChatClient(ChatBotClientBase):
             logger.error(f"聊天块子控件数量不足：期望至少3个，实际获得{len(chat_block_children)}个")
             raise ChatInterfaceNotEnabled("聊天块控件结构异常，请检查会话状态")
         
-        chat_block = chat_block_children[2]
-        #XXX chat_msg block preprocess
+        chat_block = _whole_chat_msg_ctrls[1].DocumentControl( #NOTE 消息记录GroupCtrls的最后一个的子节点是DocumentCtrl
+        ).GetParentControl().GetParentControl()
+        #XXX chat_msg block preprocess.
 
         #XXX edit block preprocess
         if len(_whole_chat_msg_ctrls) < 3:
@@ -312,7 +313,7 @@ class CmccChatClient(ChatBotClientBase):
                     break
 
             elif len(sys_or_member)==1:
-                # XXX system message, and contains more GroupControl if sys msgs are adjacement
+                # XXX system message, and contains more GroupControl if sys msgs are adjacent
                 if not only_last_msg:
                     member_name = "_system"
                     for group_ctrl in sys_or_member[0].GetChildren():
