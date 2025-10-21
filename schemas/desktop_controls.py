@@ -78,12 +78,30 @@ class HistoryMessage(ControlBaseModel):
     - If member message, covers member name, message, avartar ImageControl
     - If system message, covers only message, and member_name=='_system'
     """
-    member_name:str
+    member_name:str|None = None
+    "if session_type==individual, `member_name` will be None"
 
-    message:str
+    message_type:Literal["_system_","text","image","file"]|None = None
+    "message_type==_system_ refers to the time message system sends"
+
+    message:str | None = None
+    "message could be None if message_type in [image, file]"
+
+    filename:str | None = None
+    "available when message_type==file"
+
+    filesize: str | None = None
+    "available when message_type==file"
 
     avartar_control:uia.ImageControl=None
 
+    send_failure: bool = False
+    "message sends failed. It must be sent by the current login user."
+
+    read_already: str | None = None
+    """read already message.
+    if send_failure==True, read_already must be None;
+    elif send_failure==False and read_already==None, it must be a message from others"""
 
 class WindowsChooseFileBlock(ControlBaseModel):
     """

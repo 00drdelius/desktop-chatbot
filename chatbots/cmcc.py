@@ -272,62 +272,53 @@ class CmccChatClient(ChatBotClientBase):
         #NOTE 中移办公 is no need to refresh the tree the get history messges
         chat_interface = self.get_chat_interface
         chat_block = chat_interface.chat_block
+        topbar = chat_interface.top_bar
+        eval_ctrl = topbar.GetLastChildControl() #NOTE to judge whether it's a group session or individual session
+        if eval_ctrl and len(eval_ctrl.GetChildren())==3:
+            #NOTE group session
+            session_type = "group"
+        elif eval_ctrl and len(eval_ctrl.GetChildren())==4:
+            session_type = "individual"
+        else:
+            raise SessionNotFound("【会话窗口空白】请确认是否点击会话 && 或是确认是不是自己的对话窗口，或我的文件助手")
         children = chat_block.GetChildren()
         children = children[1:-1] # drop the first && the last, useless controls
         msg_list:List[HistoryMessage] = []
-
+        # import rich
         # XXX reverse children to adapt when `get_all_history_msgs`==False,
         # You can quickly get the last **member** msg nor **system** msg
         for child in reversed(children):
             msg_children = child.GetChildren()
-            if len(msg_children)==2:
-                # XXX has sys time message
-                if not only_last_msg:
-                    member_name = "_system"
-                    chat_time = msg_children[0].TextControl().Name
-                    msg_list.append(HistoryMessage(member_name=member_name,message=chat_time))
+            row_message_blocks = msg_children[-1].GetChildren()
 
-            sys_or_member = msg_children[-1].GetChildren()
-
-            if len(sys_or_member)>=3:
-                # XXX it's member message
+            if len(row_message_blocks)>=2:
                 # logger.debug(f"[sys_or_member]\n{sys_or_member}")
-                avartar_ctrl = sys_or_member[0].ImageControl(Depth=3)
-                member_name = sys_or_member[1].Name
-
-                # XXX message could be image message, ImageControl
-                image_or_text = sys_or_member[2].GroupControl(Depth=3).GetFirstChildControl()
-                if isinstance(image_or_text,uia.TextControl):
-                    message = get_sibling_texts(image_or_text)
-                elif isinstance(image_or_text, uia.ImageControl):
-                    message = "[图像]"
-
-                # XXX if my message, contains “已读” under message bubble
-                # inducing sys_or_member.length ==4, but it's no need
-                msg_list.append(HistoryMessage(
-                    avartar_control=avartar_ctrl,
-                    member_name=member_name,
-                    message=message
-                ))
+                message = self._get_message(session_type, row_message_blocks)
+                msg_list.append(message)
                 if only_last_msg:
                     break
 
-            elif len(sys_or_member)==1:
+            elif len(row_message_blocks)==1:
                 # XXX system message, and contains more GroupControl if sys msgs are adjacent
                 if not only_last_msg:
-                    member_name = "_system"
-                    for group_ctrl in sys_or_member[0].GetChildren():
+                    for group_ctrl in row_message_blocks[0].GetChildren():
                         message = get_sibling_texts(group_ctrl.TextControl())
                         msg_list.append(HistoryMessage(
-                            member_name=member_name,
-                            message=message
-                        ))
-                else:
-                    continue
+                            message_type="_system_",
+                            message=message))
+
+            if len(msg_children)==2:
+                # XXX has sys time message
+                if not only_last_msg:
+                    chat_time = msg_children[0].TextControl().Name
+                    msg_list.append(
+                        HistoryMessage(message_type="_system_",message=chat_time))
+
+            # rich.print(f"[msg_list]\n{(msg_list)}\n\n\n")
 
         msg_list.reverse() #XXX reverse back
 
-        debug_msg = [ f"{msg.member_name}:{msg.message}" for msg in msg_list ]
+        # debug_msg = [ f"{msg.member_name}:{msg.message}" for msg in msg_list ]
         # logger.debug(f"[sess_history_msgs]\n{debug_msg}")
         return msg_list
 
@@ -550,6 +541,61 @@ class CmccChatClient(ChatBotClientBase):
                 logger.error(f"最新联系人搜索报错: {e}")
                 # 直接跳出当前执行流程，执行下一个流程
                 raise SessionNotFound(f"最新联系人搜索失败: {e}")
+
+
+    def _get_message(self,session_type:Literal["group", "individual"],
+                     row_message_blocks:List[uia.Control])->HistoryMessage:
+        """
+        construct one session message.
+        Args:
+            row_message_blocks(uia.Control): 消息行ctrl。\
+                若是群聊聊天，其应包括头像ctrl，群名称ctrl，消息体ctrl，已读未读消息ctrl（可能有，发送失败时没有）\
+                若是私人聊天，其应包含头像ctrl，消息体ctrl，已读未读消息ctrl（可能有，发送失败时没有）
+        Returns:
+            out(HistoryMessage): single message object. Please refer more in HistoryMessage
+        """
+        Message = HistoryMessage()
+        Message.avartar_control=row_message_blocks[0].ImageControl(Depth=3)
+        if session_type=="group":
+            Message.member_name = row_message_blocks[1].Name
+            message_body_ctrl=row_message_blocks[2] #NOTE 消息体ctrl
+
+        elif session_type=="individual":
+            message_body_ctrl=row_message_blocks[1] #NOTE 消息体ctrl
+        
+        children = message_body_ctrl.GetChildren()
+        if len(children)==2:
+            #NOTE the first one must be ❗, which stands for sending failure
+            Message.send_failure=True
+
+        msg_bubble_ctrl = children[-1]
+        row_msg_ctrls = msg_bubble_ctrl.GroupControl().GetChildren()
+        if len(row_msg_ctrls)==1:
+            text_ctrl =  row_msg_ctrls[-1].TextControl()
+            image_ctrl = row_msg_ctrls[-1] #NOTE ImageControl itself cannot find inner ImageControl
+            if text_ctrl.Exists(maxSearchSeconds=0.05):
+                Message.message_type="text"
+                Message.message = get_sibling_texts(text_ctrl)
+            if isinstance(image_ctrl, uia.ImageControl):
+                logger.debug("#"*50+" image type found "+"#"*50)
+                Message.message_type="image"
+            
+        elif len(row_msg_ctrls)==3:
+            #NOTE file message
+            Message.message_type="file"
+            contains_filename_ctrl = row_msg_ctrls[0]
+            filename = contains_filename_ctrl.TextControl(Depth=2).Name
+            contains_filesize_ctrl = row_msg_ctrls[-1]
+            filesize = contains_filesize_ctrl.TextControl(Depth=1).Name
+            Message.filename = filename
+            Message.filesize = filesize
+        
+        #NOTE read_already message.
+        if ((session_type=="group" and len(row_message_blocks)==4)
+            or (session_type=="individual" and len(row_message_blocks)==3)):
+            Message.read_already = row_message_blocks[-1].TextControl().Name
+        
+        return Message
 
     @property
     def get_at_control_list(self)->List[uia.ListItemControl]:
