@@ -262,14 +262,16 @@ class CmccChatClient(ChatBotClientBase):
 
 
     # @time_consume
-    def get_session_history_msgs(self,only_last_msg:bool=True):
+    def get_session_history_msgs(self,only_last_msg:bool=True)->List[HistoryMessage]:
         """get session chat history.
         Args:
             only_last_msg(bool): if False, returns all history messages, else returns the last **member** history message
         Returns:
             out(List[Message]): a list contains Message
         """
-        #NOTE 中移办公 is no need to refresh the tree the get history messges
+        #NOTE it's necessary to refresh the controls tree if send_message and get_session_history_msgs subsequently 
+        self.__refresh_ctrls()
+
         chat_interface = self.get_chat_interface
         chat_block = chat_interface.chat_block
         topbar = chat_interface.top_bar
