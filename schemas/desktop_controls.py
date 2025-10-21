@@ -101,7 +101,7 @@ class HistoryMessage(ControlBaseModel):
     read_already: str | None = None
     """read already message.
     if send_failure==True, read_already must be None;
-    elif send_failure==False and read_already==None, it must be a message from others"""
+    elif send_failure==False and read_already==None, it must be a message from others or self-message still waiting to send"""
 
 class WindowsChooseFileBlock(ControlBaseModel):
     """
