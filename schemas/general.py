@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator, model_validator
 
 class BusinessesEnum(enum.Enum):
     low_quality="低质专线预警"
-    arrears="代付欠费超逾期缴费预警"
+    arrears="代付欠费告警"
     cmoit="CMIOT红名单到期告警"
     outage="信控停机预警"
     flexible="灵活缴费周期到期预警"
