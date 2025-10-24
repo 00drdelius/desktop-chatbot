@@ -16,7 +16,7 @@ from aiofiles import open as aopen
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
+from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
 from schemas import SendMessage
@@ -105,11 +105,21 @@ app.add_middleware(
     allow_methods=["*"],  # 允许的请求方法列表，这里使用通配符表示支持所有方法
     allow_headers=["*"],  # 允许的请求头列表，这里使用通配符表示支持所有头部字段
 )
+app.mount("/statics/",StaticFiles(directory="./statics"), "static")
 
-@app.get("/docs")
-async def customized_swagger_docs():
+@app.get("/docs", include_in_schema=False)
+async def custom_swagger_docs():
     return get_swagger_ui_html(
+        title="Swagger",
+        swagger_js_url="/statics/swagger-ui-bundle.js",
+        swagger_css_url="/statics/swagger-ui.css"
+    )
 
+@app.get("/redoc", include_in_schema=False)
+async def custom_redoc():
+    return get_redoc_html(
+        title="Redoc",
+        redoc_js_url="/statics/redoc.standalone.js"
     )
 
 

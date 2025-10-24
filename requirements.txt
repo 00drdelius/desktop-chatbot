@@ -14,3 +14,4 @@ requests
 deprecated
 pandas
 python-dotenv
+uvicorn
