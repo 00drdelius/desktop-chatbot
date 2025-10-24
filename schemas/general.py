@@ -25,7 +25,7 @@ class BusinessesEnum(enum.Enum):
     @classmethod
     def already_developed(cls):
         "已完成第一阶段开发"
-        return [cls.outage, cls.low_quality]
+        return [cls.outage, cls.low_quality, cls.arrears]
 
     @classmethod
     def get_optional(cls):
