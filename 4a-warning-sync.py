@@ -38,7 +38,7 @@ request_client.mount("http://",customized_adapter)
 message_queue = asyncio.Queue()
 message_semaphore = asyncio.Semaphore(1) # UI操作是不可抢占的
 consumer_tasks:List[asyncio.Task] = []
-# temp_dir=tempfile.TemporaryDirectory(prefix="中移移动办公UI机器人") #XXX delete=False  python 版本 3.10和3.11   是有区别的  需要注意
+# temp_dir=tempfile.TemporaryDirectory(prefix="中移移动办公UI机器人") #XXX delete=False  python 3.10 does not support parameter `delete`
 # 使用mkdtemp替代TemporaryDirectory，确保程序退出后文件不被清理
 temp_dir_path = tempfile.mkdtemp(prefix="中移移动办公UI机器人")
 log_filepath = LOGGER_DIR.joinpath("log_df.jsonl")
