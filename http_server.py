@@ -1,28 +1,37 @@
 from typing import *
+import os
+import uuid
 import asyncio
-import shortuuid
-from contextlib import asynccontextmanager
-from pathlib import Path
-from aiofiles import open as aopen
 import base64
 import traceback
+import tempfile
+from contextlib import asynccontextmanager
+from pathlib import Path
 from shutil import rmtree
+
+import uvicorn
+from dotenv import load_dotenv
+from aiofiles import open as aopen
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import uvicorn
+
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
 from schemas import SendMessage
 from chatbots import CmccChatClient
-from logg import logger
+from logg import logger, LOGGER_DIR, WORK_DIR
 
-chatbot_client = CmccChatClient(cache_session_map=False)
+load_dotenv(dotenv_path=WORK_DIR / ".env")
+WAIT_BEFORE_REFRESH=os.getenv("WAIT_BEFORE_REFRESH",5)
+WAIT_BEFORE_REFRESH=float(WAIT_BEFORE_REFRESH)
+
+chatbot_client = CmccChatClient(cache_session_map=False, wait_before_refresh=WAIT_BEFORE_REFRESH)
 message_queue = asyncio.Queue()
 message_semaphore = asyncio.Semaphore(1) # UI操作是不可抢占的
 consumer_tasks:List[asyncio.Task] = []
-temp_dir = Path(__file__).parent.joinpath("temp")
-temp_dir.mkdir(parents=True,exist_ok=True)
+temp_dir = tempfile.mkdtemp(prefix="desktop-chatbot")
 
 def b64decode(string:str):
     string = string.removeprefix("data:")
@@ -30,7 +39,9 @@ def b64decode(string:str):
     decoded = base64.b64decode(file_bytes)
     return decoded, mime_type
 
-async def async_wrapper(callable:Callable,*args,**kwargs):
+T = TypeVar("T")
+
+async def async_wrapper(callable:Callable[..., T],*args,**kwargs) -> T:
     result = await asyncio.to_thread(callable, *args, **kwargs)
     return result
 
@@ -40,7 +51,6 @@ async def execute_send_message():
         message:SendMessage = await message_queue.get()
         async with message_semaphore:
             try:
-                temp_filepath:Path=None
                 if message.Content:
                     at_list = []
                     if message.SenderWxid:
@@ -53,9 +63,9 @@ async def execute_send_message():
                         at_list=at_list
                     )
                 if message.File:
-                    filename = message.Filename or shortuuid.uuid()
+                    filename = message.Filename or str(uuid.uuid4())
                     b64decoded_bytes,mime_type = b64decode(message.File)
-                    temp_filepath=temp_dir.joinpath(filename)
+                    temp_filepath=Path(temp_dir) / filename
                     async with aopen(str(temp_filepath),"wb") as f:
                         await f.write(b64decoded_bytes)
                     temp_send_result=await async_wrapper(
@@ -67,12 +77,6 @@ async def execute_send_message():
                 await async_wrapper(logger.error, f"[ERROR EXECUTING SENDING MSG] {exc}")
                 await async_wrapper(logger.error, traceback.format_exc())
             finally:
-                #XXX delete temp file
-                #XXX necessary to sleep a bit(0.5s checked in concurrent mode)
-                # otherwise file unlink before sending
-                await asyncio.sleep(0.5)
-                if temp_filepath:
-                    await async_wrapper(temp_filepath.unlink,missing_ok=True)
                 #XXX mark task done
                 message_queue.task_done()
 
@@ -90,9 +94,10 @@ async def lifespan(app: FastAPI):
     for t in consumer_tasks:
         t.cancel()
     await asyncio.gather(*consumer_tasks, return_exceptions=True)
+    rmtree(temp_dir, ignore_errors=True) #NOTE remove all files in temp dir
     logger.info("[STATUS] successsfullly shutdown server")
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 允许的域名列表
@@ -101,12 +106,18 @@ app.add_middleware(
     allow_headers=["*"],  # 允许的请求头列表，这里使用通配符表示支持所有头部字段
 )
 
+@app.get("/docs")
+async def customized_swagger_docs():
+    return get_swagger_ui_html(
 
-@app.get("/health")
+    )
+
+
+@app.get("/health/")
 async def health_check():
     return "health check good."
 
-@app.post("/receive_message")
+@app.post("/receive_message/")
 async def receive_message(message:SendMessage):
     await message_queue.put(message)
 
