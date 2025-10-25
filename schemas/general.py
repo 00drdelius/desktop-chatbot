@@ -1,9 +1,12 @@
-from typing import *
-from pathlib import Path
 import enum
 import uuid
+from typing import *
+from pathlib import Path
+
+from pytz import timezone
 from datetime import datetime
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, field_validator, Field
+from sqlmodel import SQLModel, Field, Column, Text, Boolean, Uuid, DateTime
 
 
 class BusinessesEnum(enum.Enum):
@@ -94,9 +97,70 @@ class SendMessage(BaseModel):
         return var
 
 
+class HttpMessageStatusBase(SQLModel):
+    message_id: str = Field(
+        title="message id",
+        description="unique message id",
+        sa_column=Column("message_id", Text(), nullable=False))
+    "unique message id"
+
+    send_to: str = Field(
+        title="send to",
+        description="session name you send to",
+        sa_column=Column("send_to", Text(), nullable=False)
+    )
+    "session name you send to"
+
+    content: Optional[str] = Field(
+        title="message content",
+        description="message content",
+        sa_column=Column("content", Text(), nullable=True)
+    )
+    "message content"
+
+    success: bool = Field(
+        title="success signal",
+        description="if the message is sent successfully",
+        default=False,
+        sa_column=Column("success", Boolean(), nullable=False, default=False)
+    )
+    "success signal. To annotate if the message is sent successfully"
+
+    failure_reason: Optional[str] = Field(
+        title="failure reason",
+        description="reason why message sent failed",
+        default=None,
+        sa_column=Column("failure_reason", Text(), nullable=True)
+    )
+    "reason why message sent failed."
+
+
+class HttpMessageStatus(HttpMessageStatusBase, table=True):
+    __tablename__ = "http_message_status"
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4, 
+        title="unique id",
+        description="unique id",
+        sa_column=Column("id", Uuid(), primary_key=True,))
+    "unique id. primary key"
+
+    created_time: datetime = Field(
+        default_factory=lambda : datetime.now(),
+        title="created time",
+        description="entry created time",
+        sa_column=Column("created_time", DateTime(timezone=False), nullable=False)
+    )
+    "entry created time"
+
+
 if __name__ == '__main__':
     from rich import print
-    message = SendMessage(Content="hello",FromWxid="he",SenderWxid="g",
-                         File="D:/workspaces/toolkit/.vimrc.txt"
-                          )
-    print(message)
+    message_status = HttpMessageStatus.model_validate(
+        HttpMessageStatusBase(
+            message_id="message_id",
+            send_to="test",
+            content="ewrtae"
+        )
+    )
+    print(message_status)

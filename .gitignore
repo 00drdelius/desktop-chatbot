@@ -11,3 +11,5 @@ demo/**
 test/**
 execlog/**
 .venv/
+
+*.db

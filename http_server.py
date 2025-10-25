@@ -2,7 +2,6 @@ from typing import *
 import os
 import uuid
 import asyncio
-import base64
 import traceback
 import tempfile
 from contextlib import asynccontextmanager
@@ -10,18 +9,20 @@ from pathlib import Path
 from shutil import rmtree
 
 import uvicorn
+from pydantic import create_model
 from dotenv import load_dotenv
 from aiofiles import open as aopen
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
-from schemas import SendMessage
 from chatbots import CmccChatClient
 from logg import logger, LOGGER_DIR, WORK_DIR
+from schemas import SendMessage, HttpMessageStatus, HttpMessageStatusBase
+from tools import async_wrapper,send_stable,b64decode, DB_Client
 
 load_dotenv(dotenv_path=WORK_DIR / ".env")
 WAIT_BEFORE_REFRESH=os.getenv("WAIT_BEFORE_REFRESH",5)
@@ -32,60 +33,92 @@ message_queue = asyncio.Queue()
 message_semaphore = asyncio.Semaphore(1) # UI操作是不可抢占的
 consumer_tasks:List[asyncio.Task] = []
 temp_dir = tempfile.mkdtemp(prefix="desktop-chatbot")
+db_client: DB_Client = None
 
-def b64decode(string:str):
-    string = string.removeprefix("data:")
-    mime_type, file_bytes = string.split(";base64,",1)
-    decoded = base64.b64decode(file_bytes)
-    return decoded, mime_type
-
-T = TypeVar("T")
-
-async def async_wrapper(callable:Callable[..., T],*args,**kwargs) -> T:
-    result = await asyncio.to_thread(callable, *args, **kwargs)
-    return result
 
 async def execute_send_message():
     "consumer function"
+    global db_client
     while True:
         message:SendMessage = await message_queue.get()
+        message_id = message.id
+        send_to = message.FromWxid
+
         async with message_semaphore:
-            try:
-                if message.Content:
+            #NOTE send text message if exists
+            if message.Content:
+                try:
                     at_list = []
                     if message.SenderWxid:
                         at_list.append(message.SenderWxid)
+                    content = " ".join(["@"+i for i in at_list]) + " " +message.Content
                     await async_wrapper(
+                        send_stable,
+                        chatbot_client,
                         chatbot_client.send_message,
                         session_name=message.FromWxid,
                         message=message.Content,
                         from_clipboard=True,
                         at_list=at_list
                     )
-                if message.File:
+                except Exception as exc:
+                    logger.error(traceback.format_exc())
+                    message_status = HttpMessageStatus(
+                        message_id=message_id,
+                        send_to=send_to,
+                        content=content,
+                        success=False, failure_reason=str(exc))
+                else:
+                    message_status = HttpMessageStatus(
+                        message_id=message_id,
+                        send_to=send_to,
+                        content=content,
+                        success=True)
+                result = await db_client.create(HttpMessageStatusBase, message_status, )
+
+            #NOTE send file if exists
+            if message.File:
+                try:
                     filename = message.Filename or str(uuid.uuid4())
+                    content = "[file] filename: %s" % filename
                     b64decoded_bytes,mime_type = b64decode(message.File)
                     temp_filepath=Path(temp_dir) / filename
                     async with aopen(str(temp_filepath),"wb") as f:
                         await f.write(b64decoded_bytes)
-                    temp_send_result=await async_wrapper(
-                                                chatbot_client.send_file,
-                                                session_name=message.FromWxid,
-                                                filepath=temp_filepath
-                                            )
-            except Exception as exc:
-                await async_wrapper(logger.error, f"[ERROR EXECUTING SENDING MSG] {exc}")
-                await async_wrapper(logger.error, traceback.format_exc())
-            finally:
-                #XXX mark task done
-                message_queue.task_done()
+                    await async_wrapper(
+                        send_stable,
+                        chatbot_client,
+                        chatbot_client.send_file,
+                        session_name=message.FromWxid,
+                        filepath=temp_filepath
+                    )
+                except Exception as exc:
+                    logger.error(traceback.format_exc())
+                    message_status = HttpMessageStatus(
+                        message_id=message_id,
+                        send_to=send_to,
+                        content=content,
+                        success=False, failure_reason=str(exc))
+                else:
+                    message_status = HttpMessageStatus(
+                        message_id=message_id,
+                        send_to=send_to,
+                        content=content,
+                        success=True)
+                result = await db_client.create(HttpMessageStatusBase, message_status, )
+
+            #XXX mark task done
+            message_queue.task_done()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global consumer_tasks
-    # before initializing app
-    # create 5 consumers, though number of processes is limited to 1 by semaphore.
-    for i in range(5):
+    global consumer_tasks, db_client
+    await async_wrapper(logger.info, "create table")
+    db_client = DB_Client()
+
+    #NOTE create 4 consumers, though number of processes is limited to 1 by semaphore.
+    for i in range(4):
         task = asyncio.create_task(execute_send_message())
         consumer_tasks.append(task)
     yield
@@ -95,7 +128,8 @@ async def lifespan(app: FastAPI):
         t.cancel()
     await asyncio.gather(*consumer_tasks, return_exceptions=True)
     rmtree(temp_dir, ignore_errors=True) #NOTE remove all files in temp dir
-    logger.info("[STATUS] successsfullly shutdown server")
+    logger.info("[STATUS] successsfully shuting down server")
+
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
 app.add_middleware(
@@ -123,17 +157,31 @@ async def custom_redoc():
     )
 
 
-@app.get("/health/")
+@app.get("/health/", response_model=create_model("PlainTextResponse", output=(str, ...)))
 async def health_check():
     return "health check good."
 
-@app.post("/receive_message/")
-async def receive_message(message:SendMessage):
-    await message_queue.put(message)
 
+@app.get("/check/", response_model=create_model("JSONResponse", message_status=(HttpMessageStatus|None, ...), empty=(bool, ...)))
+async def check_message_status(
+    message_id: str = Query(..., title="message id", description="message id"),):
+    if_empty = True
+    async for result in db_client.get(HttpMessageStatus, message_id=message_id):
+        if_empty=False
+        return JSONResponse(content=dict(message_status=result, empty=if_empty))
+    if if_empty:
+        return JSONResponse(content=dict(message_status=None, empty=if_empty))
+
+
+@app.post("/receive_message/",)
+async def receive_message(message:SendMessage):
+    message_id = message.id
+    await message_queue.put(message)
     return JSONResponse(
-        content={"status":200,"message":"successfuly received message"},
-        status_code=200,
+        content={
+            "status":200,
+            "message":"message received. You can use message_id to check if your message is sent properly.",
+            "message_id":message_id},
     )
 
 
