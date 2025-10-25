@@ -2,10 +2,13 @@
 # initialize plugins, passively receive messages from GROUPS_MONITOR
 # to execute all plugins
 
+import os
 import threading
 import time
 import traceback
 from typing import *
+
+from dotenv import load_dotenv
 
 from chatbots.cmcc import CmccChatClient
 from plugins import PluginBase, PLUGIN_OBJECTS
@@ -14,8 +17,10 @@ from schemas import SendMessage
 from logg import logger
 
 
-chatbot_client = CmccChatClient()
+load_dotenv()
+chatbot_client = CmccChatClient(wait_before_refresh=os.getenv("WAIT_BEFORE_REFRESH", 2))
 PLUGIN_INSTANCES:List[PluginBase]=[]
+
 
 def initialize_plugins():
     global PLUGIN_INSTANCES
@@ -36,11 +41,9 @@ def initialize_plugins():
 
 initialize_plugins()
 
-ROBOT_PREFIX="@机器人"
+ROBOT_PREFIX=os.getenv("ROBOT_PREFIX", None)
 ### config wechat groups should be monitored ###
-GROUPS_MONITOR=[
-    "客服测试",
-]
+GROUPS_MONITOR=os.getenv("GROUPS_MONITOR", "").split(",")
 # `messages_store` stores last message in every group
 # to check if it's history message
 # For Example:

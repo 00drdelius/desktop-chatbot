@@ -13,3 +13,4 @@ execlog/**
 .venv/
 
 *.db
+.env

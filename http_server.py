@@ -186,4 +186,6 @@ async def receive_message(message:SendMessage):
 
 
 if __name__ == '__main__':
-    uvicorn.run(app, host="127.0.0.1",port=11451)
+    HOST = os.getenv("HTTP_HOST", "127.0.0.1")
+    PORT = int(os.getenv("HTTP_PORT", "11451"))
+    uvicorn.run(app, host=HOST,port=PORT)
