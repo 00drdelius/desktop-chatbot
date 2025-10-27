@@ -8,5 +8,7 @@ from .desktop_controls import (
 )
 from .exceptions import *
 from .general import (
-    SendMessage
+    SendMessage,
+    HttpMessageStatusBase,
+    HttpMessageStatus
 )

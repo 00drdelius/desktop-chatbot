@@ -14,3 +14,6 @@ requests
 deprecated
 pandas
 python-dotenv
+uvicorn
+sqlmodel
+aiosqlite

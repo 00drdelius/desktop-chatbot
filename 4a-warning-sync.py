@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 from schemas import SendMessage
 from chatbots import CmccChatClient
 from logg import logger, LOGGER_DIR, WORK_DIR
-# from exec_logger import exec_logger, logger.debug, logger.debug, log_error
+from tools import send_stable
 
 load_dotenv(dotenv_path=WORK_DIR / ".env")
 WAIT_BEFORE_REFRESH=os.getenv("WAIT_BEFORE_REFRESH",5)
@@ -62,29 +62,6 @@ def concat_jsonl_to_excel():
     log_df.to_excel(log_df_path)
     logger.debug(f"成功导出excel日志记录")
 
-T = TypeVar("T")
-
-def send_stable(send_function:Callable[...,T],**kwargs):
-    retries=3
-    while retries!=0:
-        send_function(**kwargs)
-        logger.debug("通过获取会话最后一条信息，检测是否发送成功（存在网络不稳定发送失败的情况）")
-        last_msg = chatbot_client.get_session_history_msgs(only_last_msg=True)[0]
-        if last_msg.read_already==None:
-            #NOTE read_already==None: still sending, wait
-            logger.info("【消息发送中】轮询等待消息发送完成")
-        while last_msg.read_already==None:
-            last_msg = chatbot_client.get_session_history_msgs(only_last_msg=True)[0]
-            if last_msg.send_failure:
-                #NOTE send_failure==True: network problem, needs retry
-                logger.info(f"【消息发送失败】重新发送。剩余发送次数{retries-1}")
-                retries-=1
-                break
-
-        if last_msg.send_failure==False:
-            logger.info("【消息发送成功】")
-            retries=0
-        
 
 def execute_send_message(message:SendMessage):
     "consumer function"
@@ -100,6 +77,7 @@ def execute_send_message(message:SendMessage):
             if message.SenderWxid:
                 at_list.append(message.SenderWxid)
             send_stable(
+                chatbot_client,
                 chatbot_client.send_message,
                 session_name=message.FromWxid,
                 message=message.Content,
@@ -119,6 +97,7 @@ def execute_send_message(message:SendMessage):
                 temp_f.write(b64decoded_bytes)
 
             send_stable(
+                chatbot_client,
                 chatbot_client.send_file,
                 message=message,
                 session_name=message.FromWxid,

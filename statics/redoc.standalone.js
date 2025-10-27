@@ -1,0 +1,1 @@
+Redirecting to /redoc@2.5.2/bundles/redoc.standalone.js
