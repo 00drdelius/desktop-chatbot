@@ -44,7 +44,9 @@ class BusinessesEnum(enum.Enum):
 
 class SendMessage(BaseModel):
     """Message to send to chatbot client."""
-    Business:Optional[BusinessesEnum]=None
+    Business:Optional[BusinessesEnum]=Field(
+        default=None, 
+        description="[only used in 4a-warning] which business the item is. Can only be one of `BusinessesEnum`")
     "which business the item is. Can only be one of `BusinessesEnum`"
 
     Content:Optional[str]=""
@@ -67,21 +69,22 @@ class SendMessage(BaseModel):
     member name in a group session.
     Only exists when message is about to send to group.
     """
-    File:Optional[Union[str,Path]]=None #XXX goto be `str` precedes `Path`, or `str` passed in converts to Path
+    File:Optional[Union[str,Path]]=None #XXX got to be `str` precedes `Path`, or `str` passed in converts to Path
     "Send file. file in bytes should be encoded in base64"
     Filename:Optional[str]=None
     """filename of the file you sends.
     If None but File not None, generates randomly."""
-    id: uuid.UUID
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4, description="unique id")
     "unique id"
-    CreatedTime: datetime
+    CreatedTime: Optional[datetime] = None
     "datetime this entry is created"
     IsSent: bool = False
     """
     Whether the message is successfully sent to client and receive its 200 returns.
     `200 returns` means the client has successfully send the message to UI chatbot.
     """
-    SendTime: datetime | None = None
+    SendTime: Optional[datetime] = None
     """
     datetime this entry is successfully sent to client and receive its 200 returns.
     `200 returns` means the client has successfully send the message to UI chatbot.
@@ -90,7 +93,7 @@ class SendMessage(BaseModel):
     @field_validator("File")
     @classmethod
     def validate_file(cls, var):
-        if isinstance(var, str):
+        if var and isinstance(var, str):
             assert "base64" in var, "File in string only supports base64 encode!"
         elif isinstance(var, Path):
             assert var.exists(), "File in Path not exists!"
