@@ -23,4 +23,6 @@ It loads plugins from `./plugins` and create a scheduler to enqueue every task, 
 
 2. `python http_server.py`
 
-This method creates a local chatbot and a http server. It accepts request from network and send message at local. 
+This method creates a local chatbot and a http server. It accepts request from network and send message at local.
+
+once started http sever, api doc can be referred to `/docs` or `/redoc`
