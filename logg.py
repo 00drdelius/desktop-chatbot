@@ -17,7 +17,7 @@ logger.level("API", no=1, color="<cyan>")
 logger.add(
     sys.stdout,
     colorize=True,
-    format="[<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level}</level> | {file}::{function}::{line} ] {message}",
+    format="[<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level}</level> | {file}:{function}:{line} ] {message}",
     level="TRACE",
     enqueue=True,
     backtrace=True,
@@ -25,7 +25,8 @@ logger.add(
 )
 logger.add(
     str(LOGGER_DIR / "execution.log"),
-    format="[{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}::{function}::{line} ] {message}",
+    colorize=False,
+    format="[{time:YYYY-MM-DD HH:mm:ss} | {level} | {file}:{function}:{line} ] {message}",
     encoding="utf-8",
     enqueue=True,
     rotation="10mb",
