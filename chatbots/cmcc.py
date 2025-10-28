@@ -395,13 +395,14 @@ class CmccChatClient(ChatBotClientBase):
         edit_text_block.SendKeys("{Ctrl}a{BACK}",waitTime=0)
         #XXX at_list type first if not empty
         if at_list:
-            if "*" in at_list[0]:
+            only_at_all="*" in at_list
+            if only_at_all:
                 edit_text_block.SendKeys(f"@全体成员",waitTime=0)
                 edit_text_block.SendKeys("{Enter}",waitTime=0)
-                
-            for member in at_list:
-                edit_text_block.SendKeys(f"@{member}",waitTime=0)
-                edit_text_block.SendKeys("{Enter}",waitTime=0)
+            else: #NOTE if at all; ignore any other at
+                for member in at_list:
+                    edit_text_block.SendKeys(f"@{member}",waitTime=0)
+                    edit_text_block.SendKeys("{Enter}",waitTime=0)
                 # _at = self.get_at_control_list
         if not from_clipboard:
             # NOTE Name has no setterz
@@ -503,11 +504,19 @@ class CmccChatClient(ChatBotClientBase):
                 #NOTE:不是最近联系人，移动办公大多情况不会默认选择第一个搜索到的联系人，需要自动化鼠标点击
                 #XXX 在search result下找到Name为${search keywords}的TextControl组件，找到后鼠标点击该组件
                 try:
-                    
-                    # 在搜索结果中查找匹配搜索关键词的TextControl，增加等待时间
+                    #NOTE 查询会话为个人时, TextControl 会指向手机号；
+                    # 但是 群名 <- GroupControl ； 个人会话名 <- ListItemControl
                     searched_session = search_result.TextControl(Name=search_keywords)
-                    
-                    if searched_session:  
+                    #NOTE Lazy Evaluation。延迟查找。直接`.TextControl`的时候不会报错，调用的时候才会。
+                    # 因此额外使用`Exsits`查询是否存在
+                    if not searched_session.Exists(maxSearchSeconds=0.005):
+                        logger.warning("查询列表中无法找到 TextControl，尝试查询 GroupControl")
+                        searched_session = search_result.GroupControl(Name=search_keywords)
+                        if not searched_session.Exists(maxSearchSeconds=0.005):
+                            logger.warning("查询列表中无法找到 TextControl，尝试查询 GroupControl")
+                            searched_session = search_result.ListItemControl(Name=search_keywords)
+
+                    if searched_session.Exists(maxSearchSeconds=0.005):
                         # 找到匹配的TextControl，进行鼠标点击选择
                         searched_session.Click(waitTime=0)
                         logger.debug(f"找到并点击选择最近联系人: {search_keywords}")
@@ -548,7 +557,7 @@ class CmccChatClient(ChatBotClientBase):
     def _get_message(self,session_type:Literal["group", "individual"],
                      row_message_blocks:List[uia.Control])->HistoryMessage:
         """
-        construct one session message.
+        construct a session history message.
         Args:
             row_message_blocks(uia.Control): 消息行ctrl。\
                 若是群聊聊天，其应包括头像ctrl，群名称ctrl，消息体ctrl，已读未读消息ctrl（可能有，发送失败时没有）\
