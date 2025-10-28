@@ -68,6 +68,8 @@ class SendMessage(BaseModel):
     """
     member name in a group session.
     Only exists when message is about to send to group.
+    
+    You can send a "*" to @全体成员; send multi member names to at seperately.(names should be divided by 中文逗号)
     """
     File:Optional[Union[str,Path]]=None #XXX got to be `str` precedes `Path`, or `str` passed in converts to Path
     "Send file. file in bytes should be encoded in base64"

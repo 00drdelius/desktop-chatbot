@@ -4,7 +4,7 @@ desktop UI chatbot based on python uiautomation.
 
 Currently developed chatbot:
 
-- 中移移动办公
+- 中移移动办公 (version: 2.2.9100)
 
 # Quick start
 ## Prerequisite
