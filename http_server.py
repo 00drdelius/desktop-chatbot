@@ -36,7 +36,6 @@ consumer_tasks:List[asyncio.Task] = []
 temp_dir = tempfile.mkdtemp(prefix="desktop-chatbot")
 db_client: DB_Client = None
 
-
 async def execute_send_message():
     "consumer function"
     global db_client
@@ -44,15 +43,16 @@ async def execute_send_message():
         message:SendMessage = await message_queue.get()
         message_id = str(message.id)
         send_to = message.FromWxid
-
+        log_content = message.Content
         async with message_semaphore:
             #NOTE send text message if exists
             if message.Content:
                 try:
                     at_list = []
                     if message.SenderWxid:
-                        at_list.append(message.SenderWxid)
-                    content = " ".join(["@"+i for i in at_list]) + " " +message.Content
+                        at_list=[ i for i in message.SenderWxid.split("，") if i!=""]
+                        log_content = "".join(["@"+at+" " for at in at_list])+log_content
+                        logger.debug(f"at_list: {at_list} ; content: {message.Content}")
                     await async_wrapper(
                         send_stable,
                         chatbot_client,
@@ -67,25 +67,25 @@ async def execute_send_message():
                     message_status = HttpMessageStatusBase(
                         message_id=message_id,
                         send_to=send_to,
-                        content=content,
+                        content=log_content,
                         success=False, failure_reason=str(exc))
                 else:
                     message_status = HttpMessageStatusBase(
                         message_id=message_id,
                         send_to=send_to,
-                        content=content,
+                        content=log_content,
                         success=True)
 
                 try: #NOTE needs to catch error here, else asyncio task ignores it and keeps go on.
                     result = await db_client.create(message_status, HttpMessageStatus)
-                    await async_wrapper(logger.info, f"[text message sent] {message_id}")
+                    logger.info(f"[text message sent] {message_id}")
                 except Exception as e:
                     raise Exception(e) from e
             #NOTE send file if exists
             if message.File:
                 try:
                     filename = message.Filename or str(uuid.uuid4())
-                    content = "[file] filename: %s" % filename
+                    log_content = "[file] filename: %s" % filename
                     b64decoded_bytes,mime_type = b64decode(message.File)
                     temp_filepath=Path(temp_dir) / filename
                     async with aopen(str(temp_filepath),"wb") as f:
@@ -102,22 +102,23 @@ async def execute_send_message():
                     message_status = HttpMessageStatusBase(
                         message_id=message_id,
                         send_to=send_to,
-                        content=content,
+                        content=log_content,
                         success=False, failure_reason=str(exc))
                 else:
                     message_status = HttpMessageStatusBase(
                         message_id=message_id,
                         send_to=send_to,
-                        content=content,
+                        content=log_content,
                         success=True)
                 try: #NOTE needs to catch error here, else asyncio task ignores it and keeps go on.
                     result = await db_client.create(message_status, HttpMessageStatus)
-                    await async_wrapper(logger.info, f"[file message sent] {message_id}")
+                    logger.info(f"[file message sent] {message_id}")
                 except Exception as e:
                     raise Exception(e) from e
 
             #XXX mark task done
             message_queue.task_done()
+            logger.info(f"[message left] {message_queue.qsize()}")
 
 
 @asynccontextmanager
@@ -127,8 +128,9 @@ async def lifespan(app: FastAPI):
     db_client = DB_Client()
     await db_client.migrate()
 
-    #NOTE create 4 consumers, though number of processes is limited to 1 by semaphore.
-    for i in range(4):
+    #XXX You cannot create 4 consumers, though number of processes is limited to 1 by semaphore.
+    # cuz every consumer get message from only one message_queue, but only you task can send message.
+    for i in range(1):
         task = asyncio.create_task(execute_send_message())
         consumer_tasks.append(task)
     yield
