@@ -575,11 +575,20 @@ class CmccChatClient(ChatBotClientBase):
             message_body_ctrl=row_message_blocks[1] #NOTE 消息体ctrl
         
         children = message_body_ctrl.GetChildren()
+        logger.debug(str(children))
         if len(children)==2:
             #NOTE the first one must be ❗, which stands for sending failure
             Message.send_failure=True
+        elif len(row_message_blocks)==2:
+            #NOTE somtimes children contain 3 blocks, the last one is “%H:%M”|“更多”|“引用” block
+            # and it covers two conditions, one is msg still sending; another is msg failed
+            Message.send_failure=True #no “未读/已读”
 
-        msg_bubble_ctrl = children[-1]
+        if len(children)==3:
+            msg_bubble_ctrl = children[1] # see latest NOTE above
+        else:
+            msg_bubble_ctrl = children[-1]
+
         row_msg_ctrls = msg_bubble_ctrl.GroupControl().GetChildren()
         if len(row_msg_ctrls)==1:
             text_ctrl =  row_msg_ctrls[-1].TextControl()

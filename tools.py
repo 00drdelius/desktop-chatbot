@@ -1,13 +1,20 @@
+import os
+import time
 import asyncio
 import base64
 from typing import *
 
+from dotenv import load_dotenv
 from sqlmodel import SQLModel, select
 from sqlalchemy import URL
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 
 from logg import logger
 from chatbots import ChatBotClientBase
+
+load_dotenv()
+WAIT_BEFORE_REFRESH = os.getenv("WAIT_BEFORE_REFRESH",3)
+WAIT_BEFORE_REFRESH = float(WAIT_BEFORE_REFRESH)
 
 T = TypeVar("T")
 T_Sqlmodel = TypeVar("T", bound=SQLModel)
@@ -93,6 +100,7 @@ def send_stable(chatbot_client: T_ChatBotClient, send_function:Callable[...,T],*
     retries=3
     while retries!=0:
         send_function(**kwargs)
+        time.sleep(WAIT_BEFORE_REFRESH) #NOTE necessary for waiting message sent out.
         logger.debug("通过获取会话最后一条信息，检测是否发送成功（存在网络不稳定发送失败的情况）")
         last_msg = chatbot_client.get_session_history_msgs(only_last_msg=True)[0]
         if last_msg.read_already==None:
